@@ -5,8 +5,8 @@
 -- Só quando existe, ele chama a rota /api/cron/reminders do app,
 -- que envia o push e calcula o próximo horário.
 --
--- Antes de rodar, troque os 2 valores abaixo:
---   SEU-APP.vercel.app  -> o domínio do seu app na Vercel
+-- Antes de rodar, troque o valor abaixo:
+--   (o domínio lifequest-sigma-pearl.vercel.app já está preenchido)
 --   SEU_CRON_SECRET     -> o mesmo valor da variável CRON_SECRET na Vercel
 -- =============================================================
 
@@ -21,7 +21,7 @@ select cron.schedule(
   '* * * * *',
   $$
   select net.http_post(
-    url := 'https://SEU-APP.vercel.app/api/cron/reminders',
+    url := 'https://lifequest-sigma-pearl.vercel.app/api/cron/reminders',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer SEU_CRON_SECRET'

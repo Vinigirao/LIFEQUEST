@@ -40,3 +40,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase (arquivos locais da CLI)
+supabase/.temp/
+supabase/.branches/
+
+# chaves e segredos (nunca subir)
+lifequest-chaves*.txt
+*.key
+secrets/
+
+# arquivos soltos que não fazem parte do projeto
+*.zip
+_to_delete/
+
+# sistema e editores
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
