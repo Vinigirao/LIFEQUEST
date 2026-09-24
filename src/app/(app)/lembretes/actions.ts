@@ -43,7 +43,7 @@ export async function sendTestPush(): Promise<number> {
 // ---------- lembretes ----------
 
 export async function createReminder(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const title = String(formData.get("title") ?? "").trim();
   if (!title) return;
   const body = String(formData.get("body") ?? "").trim() || null;
@@ -66,6 +66,7 @@ export async function createReminder(formData: FormData) {
 
   const next = computeNextRun(schedule);
   await supabase.from("reminders").insert({
+    user_id: user.id,
     title,
     body,
     ...schedule,

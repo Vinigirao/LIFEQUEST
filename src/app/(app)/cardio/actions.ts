@@ -17,12 +17,13 @@ function refresh() {
 }
 
 export async function addCardio(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const duration = num(formData.get("duration_min"));
   if (duration == null || !Number.isFinite(duration) || duration <= 0) return;
   const distance = num(formData.get("distance_km"));
   const hr = num(formData.get("avg_hr"));
   await supabase.from("cardio_sessions").insert({
+    user_id: user.id,
     activity_date: safeDate(String(formData.get("date") ?? "")),
     activity_type: String(formData.get("activity_type") ?? "Workout"),
     duration_min: duration,

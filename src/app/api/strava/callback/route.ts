@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { siteUrl } from "@/lib/site-url";
 import { exchangeCode, syncActivities } from "@/lib/strava";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import { getOwner } from "@/lib/owner";
 
 export async function GET(request: NextRequest) {
   const base = siteUrl(request);
@@ -17,13 +17,8 @@ export async function GET(request: NextRequest) {
   if (!code || !state || state !== expected) return fail("sessão expirada, tente de novo");
   if (!(params.get("scope") ?? "").includes("activity:read")) return fail("marque a permissão de ver atividades");
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.redirect(`${base}/login`);
-
   try {
+    const user = await getOwner();
     const t = await exchangeCode(code);
     const admin = createAdminClient();
     const { error } = await admin.from("strava_connections").upsert({

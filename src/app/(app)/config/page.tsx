@@ -1,9 +1,7 @@
-import { LogOut } from "lucide-react";
 import { SubmitButton } from "@/components/submit-button";
 import { PageTitle, SectionTitle } from "@/components/ui";
 import { requireUser } from "@/lib/supabase/server";
 import { disconnectStrava } from "../cardio/actions";
-import { signOut } from "./actions";
 import { WebhookButton } from "./webhook-button";
 
 export default async function ConfigPage() {
@@ -43,12 +41,13 @@ export default async function ConfigPage() {
         {devices ?? 0} aparelho(s) recebendo lembretes. Ative ou teste pela aba Lembretes.
       </div>
 
-      <SectionTitle>Conta</SectionTitle>
-      <form action={signOut}>
-        <SubmitButton className="btn w-full" pendingText="Saindo...">
-          <LogOut size={16} /> Sair
-        </SubmitButton>
-      </form>
+      <SectionTitle>Acesso</SectionTitle>
+      <div className="card text-sm text-muted">
+        Versão beta sem login: o app usa a conta {user.email || "do dono"}.{" "}
+        {process.env.APP_ACCESS_KEY
+          ? "Protegido por chave de acesso neste aparelho."
+          : "Qualquer pessoa com o link consegue abrir. Para proteger, configure APP_ACCESS_KEY na Vercel."}
+      </div>
     </>
   );
 }

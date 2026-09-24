@@ -1,15 +1,8 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { siteUrl } from "@/lib/site-url";
 import { createWebhookSubscription, listWebhookSubscriptions } from "@/lib/strava";
 import { requireUser } from "@/lib/supabase/server";
-
-export async function signOut() {
-  const { supabase } = await requireUser();
-  await supabase.auth.signOut();
-  redirect("/login");
-}
 
 /** Cria (uma vez) a inscrição do webhook no Strava para receber atividades novas na hora. */
 export async function setupStravaWebhook(): Promise<string> {

@@ -17,7 +17,7 @@ type BodyLog = {
 };
 
 export default async function FotosPage({ searchParams }: PageProps<"/fotos">) {
-  const { supabase, user } = await requireUser();
+  const { supabase } = await requireUser();
   const sp = await searchParams;
   const date = safeDate(typeof sp.d === "string" ? sp.d : undefined);
   const since = addDays(todayISO(), -180);
@@ -65,7 +65,6 @@ export default async function FotosPage({ searchParams }: PageProps<"/fotos">) {
 
       <BodyLogForm
         key={date}
-        userId={user.id}
         date={date}
         current={{
           weight: current?.weight_kg != null ? String(Number(current.weight_kg)) : "",

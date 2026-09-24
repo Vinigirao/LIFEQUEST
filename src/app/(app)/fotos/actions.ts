@@ -55,6 +55,15 @@ export async function saveBodyLog(input: Input) {
   revalidatePath("/");
 }
 
+/** Prepara um upload direto para o bucket privado (link assinado, válido por pouco tempo). */
+export async function createPhotoUpload(date: string): Promise<{ path: string; token: string }> {
+  const { supabase, user } = await requireUser();
+  const path = `${user.id}/${safeDate(date)}-${Date.now()}.jpg`;
+  const { data, error } = await supabase.storage.from("body-photos").createSignedUploadUrl(path);
+  if (error || !data) throw new Error(error?.message ?? "Erro ao preparar o envio da foto");
+  return { path: data.path, token: data.token };
+}
+
 export async function deletePhoto(formData: FormData) {
   const { supabase } = await requireUser();
   const date = safeDate(String(formData.get("date") ?? ""));

@@ -21,10 +21,10 @@ function refresh() {
 }
 
 export async function createGoal(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const goal = parseGoal(formData);
   const { count } = await supabase.from("goals").select("id", { count: "exact", head: true });
-  await supabase.from("goals").insert({ ...goal, position: (count ?? 0) + 1 });
+  await supabase.from("goals").insert({ user_id: user.id, ...goal, position: (count ?? 0) + 1 });
   refresh();
 }
 

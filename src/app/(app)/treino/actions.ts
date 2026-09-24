@@ -26,7 +26,7 @@ async function resolveExercise(supabase: SupabaseClient, userId: string, formDat
 // ---------- sessões ----------
 
 export async function startWorkout(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const templateId = String(formData.get("template_id") ?? "") || null;
   let name = String(formData.get("name") ?? "").trim();
   if (templateId && !name) {
@@ -36,6 +36,7 @@ export async function startWorkout(formData: FormData) {
   const { data, error } = await supabase
     .from("workout_sessions")
     .insert({
+      user_id: user.id,
       session_date: safeDate(String(formData.get("date") ?? "")),
       name: name || "Treino",
       template_id: templateId,
@@ -88,6 +89,7 @@ export async function addSet(formData: FormData) {
     .eq("exercise_id", exerciseId);
 
   await supabase.from("workout_sets").insert({
+    user_id: user.id,
     session_id: sessionId,
     exercise_id: exerciseId,
     set_number: (count ?? 0) + 1,
@@ -115,10 +117,10 @@ export async function createExercise(formData: FormData) {
 // ---------- modelos (Treino A, B, C...) ----------
 
 export async function createTemplate(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
-  await supabase.from("workout_templates").insert({ name });
+  await supabase.from("workout_templates").insert({ user_id: user.id, name });
   revalidatePath("/treino/modelos");
   revalidatePath("/treino");
 }
@@ -141,6 +143,7 @@ export async function addTemplateExercise(formData: FormData) {
     .eq("template_id", templateId);
   const sets = Math.round(num(formData.get("target_sets")));
   await supabase.from("workout_template_exercises").insert({
+    user_id: user.id,
     template_id: templateId,
     exercise_id: exerciseId,
     position: (count ?? 0) + 1,

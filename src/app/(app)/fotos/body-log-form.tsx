@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Camera } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { saveBodyLog } from "./actions";
+import { createPhotoUpload, saveBodyLog } from "./actions";
 
 /** Reduz a foto para no máximo 1280 px e JPEG ~82% (fica em torno de 150-300 KB). */
 async function compress(file: File): Promise<Blob> {
@@ -20,11 +20,9 @@ async function compress(file: File): Promise<Blob> {
 }
 
 export function BodyLogForm({
-  userId,
   date,
   current,
 }: {
-  userId: string;
   date: string;
   current: { weight: string; waist: string; notes: string; photoUrl: string | null };
 }) {
@@ -50,11 +48,12 @@ export function BodyLogForm({
         let photoPath: string | null = null;
         if (file) {
           const blob = await compress(file);
-          photoPath = `${userId}/${date}-${Date.now()}.jpg`;
+          const { path, token } = await createPhotoUpload(date);
           const { error: upErr } = await createClient()
             .storage.from("body-photos")
-            .upload(photoPath, blob, { contentType: "image/jpeg", upsert: false });
+            .uploadToSignedUrl(path, token, blob, { contentType: "image/jpeg" });
           if (upErr) throw new Error(upErr.message);
+          photoPath = path;
         }
         await saveBodyLog({
           date,

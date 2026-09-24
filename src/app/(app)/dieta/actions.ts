@@ -18,7 +18,7 @@ function refresh() {
 // ---------- registros do dia ----------
 
 export async function logSavedMeal(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const id = String(formData.get("saved_meal_id"));
   const servings = num(formData.get("servings")) || 1;
   const { data: meal } = await supabase
@@ -33,6 +33,7 @@ export async function logSavedMeal(formData: FormData) {
     round(items.reduce((s, i) => s + Number(i[k]), 0) * servings);
 
   await supabase.from("meal_logs").insert({
+    user_id: user.id,
     log_date: safeDate(String(formData.get("date") ?? "")),
     name: meal.name,
     saved_meal_id: meal.id,
@@ -46,9 +47,10 @@ export async function logSavedMeal(formData: FormData) {
 }
 
 export async function logManualMeal(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const isFree = formData.get("is_free_meal") === "1";
   await supabase.from("meal_logs").insert({
+    user_id: user.id,
     log_date: safeDate(String(formData.get("date") ?? "")),
     name: String(formData.get("name") ?? "").trim() || (isFree ? "Refeição livre" : "Refeição"),
     kcal: num(formData.get("kcal")),
@@ -70,11 +72,11 @@ export async function deleteMealLog(formData: FormData) {
 // ---------- refeições salvas ----------
 
 export async function createSavedMeal(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const { count } = await supabase.from("saved_meals").select("id", { count: "exact", head: true });
-  await supabase.from("saved_meals").insert({ name, position: (count ?? 0) + 1 });
+  await supabase.from("saved_meals").insert({ user_id: user.id, name, position: (count ?? 0) + 1 });
   revalidatePath("/dieta/refeicoes");
   revalidatePath("/dieta");
 }
@@ -96,7 +98,7 @@ export async function deleteSavedMeal(formData: FormData) {
 }
 
 export async function addSavedMealItem(formData: FormData) {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const mealId = String(formData.get("saved_meal_id"));
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
@@ -105,6 +107,7 @@ export async function addSavedMealItem(formData: FormData) {
     .select("id", { count: "exact", head: true })
     .eq("saved_meal_id", mealId);
   await supabase.from("saved_meal_items").insert({
+    user_id: user.id,
     saved_meal_id: mealId,
     name,
     portion: String(formData.get("portion") ?? "").trim() || null,
