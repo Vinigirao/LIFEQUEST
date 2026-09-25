@@ -8,7 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * Essa visita grava um cookie que vale por 1 ano. Sem a variável, o app fica aberto.
  */
 const COOKIE = "lq_access";
-const OPEN_PATHS = ["/api/cron", "/api/strava/webhook"];
+const OPEN_PATHS = ["/api/cron", "/api/strava/webhook", "/api/pluggy/webhook"];
 
 export function proxy(request: NextRequest) {
   const key = process.env.APP_ACCESS_KEY;

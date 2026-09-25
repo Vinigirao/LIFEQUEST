@@ -1,16 +1,30 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Landmark } from "lucide-react";
-import { SubmitButton } from "@/components/submit-button";
+import { ChevronLeft, ChevronRight, CreditCard, Landmark, Wallet } from "lucide-react";
+import { DeleteButton, SubmitButton } from "@/components/submit-button";
 import { Empty, PageTitle, SectionTitle } from "@/components/ui";
-import { formatDayShort, todayISO } from "@/lib/dates";
+import { formatDateTime, formatDayShort, todayISO } from "@/lib/dates";
+import { pluggyConfigured } from "@/lib/pluggy";
 import { requireUser } from "@/lib/supabase/server";
 import { addCategory } from "./actions";
 import { ImportForm } from "./import-form";
+import { PluggyConnect } from "./pluggy-connect";
+import { removePluggyItem } from "./pluggy-actions";
 import { RecategorizeButton } from "./recategorize-button";
 import { TxCategory } from "./tx-category";
 
 type Category = { id: string; name: string; kind: "despesa" | "receita" | "neutro"; position: number };
 type Tx = { id: string; tx_date: string; description: string; amount: number; category_id: string | null; account: string | null };
+type PItem = { id: string; connector_name: string | null; last_sync_at: string | null; last_error: string | null };
+type PAccount = {
+  id: string;
+  item_id: string;
+  type: string | null;
+  subtype: string | null;
+  name: string | null;
+  balance: number | null;
+  credit_limit: number | null;
+  available_credit: number | null;
+};
 type Snapshot = { snapshot_date: string; asset_class: string; net: number | null; gross: number | null };
 
 const brl = (n: number, digits = 0) =>
@@ -43,7 +57,7 @@ export default async function FinancasPage({ searchParams }: PageProps<"/financa
   const onlyUncategorized = sp.f === "sem";
   const from6 = `${shiftMonth(month, -5)}-01`;
 
-  const [{ data: cats }, { data: txs6 }, { data: snaps }] = await Promise.all([
+  const [{ data: cats }, { data: txs6 }, { data: snaps }, { data: pItems }, { data: pAccounts }] = await Promise.all([
     supabase.from("finance_categories").select("id, name, kind, position").order("position"),
     supabase
       .from("finance_transactions")
@@ -57,7 +71,17 @@ export default async function FinancasPage({ searchParams }: PageProps<"/financa
       .select("snapshot_date, asset_class, net, gross")
       .order("snapshot_date", { ascending: false })
       .limit(60),
+    supabase.from("pluggy_items").select("id, connector_name, last_sync_at, last_error").order("created_at"),
+    supabase
+      .from("pluggy_accounts")
+      .select("id, item_id, type, subtype, name, balance, credit_limit, available_credit")
+      .order("type"),
   ]);
+  const items = (pItems ?? []) as PItem[];
+  const accounts = (pAccounts ?? []) as PAccount[];
+  const itemName = new Map(items.map((i) => [i.id, i.connector_name ?? "Banco"]));
+  const lastSync = items.map((i) => i.last_sync_at).filter(Boolean).sort().at(-1) as string | undefined;
+  const syncError = items.find((i) => i.last_error)?.last_error;
 
   const categories = (cats ?? []) as Category[];
   const catById = new Map(categories.map((c) => [c.id, c]));
@@ -111,6 +135,85 @@ export default async function FinancasPage({ searchParams }: PageProps<"/financa
         <Link href={`/financas?m=${shiftMonth(month, 1)}`} className="p-2 text-muted" aria-label="Próximo mês">
           <ChevronRight size={20} />
         </Link>
+      </div>
+
+      <div className="card mb-4 space-y-3">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-semibold">Contas conectadas</p>
+            <p className="text-xs text-muted">
+              Open Finance via Pluggy{lastSync ? ` · sincronizado ${formatDateTime(lastSync)}` : ""}
+            </p>
+          </div>
+          <Wallet size={20} className="text-accent" />
+        </div>
+        {!pluggyConfigured() ? (
+          <p className="text-xs text-warn">
+            Para ativar, crie as variáveis PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET na Vercel e faça Redeploy.
+          </p>
+        ) : (
+          <>
+            {accounts.length > 0 && (
+              <ul className="divide-y divide-line">
+                {accounts.map((a) => {
+                  const card = a.type === "CREDIT" || a.subtype === "CREDIT_CARD";
+                  const used =
+                    card && a.credit_limit != null && a.available_credit != null
+                      ? Number(a.credit_limit) - Number(a.available_credit)
+                      : null;
+                  return (
+                    <li key={a.id} className="flex items-center justify-between gap-2 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {card ? <CreditCard size={16} className="shrink-0 text-muted" /> : <Landmark size={16} className="shrink-0 text-muted" />}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm">{a.name}</p>
+                          <p className="text-[11px] text-muted">{itemName.get(a.item_id)}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        {card ? (
+                          <>
+                            <p className="text-sm font-semibold tabular-nums">{brl(Number(used ?? a.balance ?? 0), 2)}</p>
+                            <p className="text-[11px] text-muted">
+                              usado{a.available_credit != null ? ` · livre ${brl(Number(a.available_credit))}` : ""}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold tabular-nums">{brl(Number(a.balance ?? 0), 2)}</p>
+                            <p className="text-[11px] text-muted">saldo</p>
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {syncError && <p className="text-xs text-bad">Última sincronização com erro: {syncError}</p>}
+            <PluggyConnect hasItems={items.length > 0} />
+            {items.length > 0 && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted">Conexões ({items.length})</summary>
+                <ul className="mt-2 space-y-1">
+                  {items.map((i) => (
+                    <li key={i.id} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-muted">
+                        {i.connector_name ?? "Banco"} · {i.id.slice(0, 8)}…
+                      </span>
+                      <form action={removePluggyItem}>
+                        <input type="hidden" name="id" value={i.id} />
+                        <DeleteButton className="text-bad" confirmText="Remover esta conexão do LIFEQUEST? (os lançamentos ficam)">
+                          remover
+                        </DeleteButton>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center">

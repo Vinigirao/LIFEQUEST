@@ -44,6 +44,19 @@ As refeições **Refeição 1** (545 kcal) e **Refeição 2** (528 kcal) e algum
 
 ---
 
+## Open Finance (Pluggy)
+
+Traz contas, cartões e lançamentos de todos os bancos para a aba Finanças, 1 vez por dia, de graça (Meu Pluggy: até 5 conexões, só contas no seu CPF).
+
+1. Conecte os bancos em **meu.pluggy.ai**.
+2. Em **dashboard.pluggy.ai**, crie uma aplicação, ative o conector **MeuPluggy** e copie o **Client ID** e o **Client Secret**.
+3. Na Vercel, crie `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` (Sensitive ligado) e faça Redeploy.
+4. No Supabase, rode `supabase/migrations/0003_pluggy.sql` e depois `supabase/cron-pluggy.sql` (troque `SEU_CRON_SECRET`).
+5. No app: **Mais → Finanças → Conectar banco** → escolha **MeuPluggy** → autorize. Repita para cada banco.
+6. Opcional: no dashboard da Pluggy, cadastre o webhook `https://SEU-APP/api/pluggy/webhook?token=SEU_CRON_SECRET` para sincronizar assim que a Pluggy atualizar.
+
+Lançamentos iguais (mesma data e valor) a extratos já importados à mão são ignorados, para não duplicar.
+
 ## Passo a passo para colocar no ar
 
 Tudo abaixo é feito pelo navegador, nos painéis do Supabase, Vercel e Strava. Não precisa rodar nada no seu computador.
