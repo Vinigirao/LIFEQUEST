@@ -1,6 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { categorize, type Rule } from "./finance/categorize";
+import { detectMethod, parseInstallment } from "./finance/method";
+
+/** Versão do formato dos dados. Ao subir, a próxima sincronização reprocessa 12 meses. */
+const SYNC_VERSION = 2;
 
 const API = "https://api.pluggy.ai";
 
@@ -73,7 +77,16 @@ type PluggyTransaction = {
   status?: "PENDING" | "POSTED";
   category?: string | null;
   balance?: number | null;
+  creditCardMetadata?: {
+    installmentNumber?: number | null;
+    totalInstallments?: number | null;
+    totalAmount?: number | null;
+    purchaseDate?: string | null;
+  } | null;
+  paymentData?: { paymentMethod?: string | null } | null;
 };
+
+type PluggyBill = { id: string; dueDate: string; totalAmount: number };
 
 // ---------------------------------------------------------------- chamadas
 
@@ -91,18 +104,34 @@ async function listAccounts(itemId: string) {
   return data.results ?? [];
 }
 
+/**
+ * Lista lançamentos com paginação por cursor.
+ * A Pluggy devolve em "next" o trecho a ser colado no fim do endereço (ex.: "?accountId=...&after=XYZ").
+ */
 async function listTransactions(accountId: string, from: string, to: string): Promise<PluggyTransaction[]> {
   const out: PluggyTransaction[] = [];
-  let after: string | null = null;
-  for (let i = 0; i < 40; i++) {
-    const qs = new URLSearchParams({ accountId, dateFrom: from, dateTo: to });
-    if (after) qs.set("after", after);
-    const page: { results: PluggyTransaction[]; next?: string | null } = await pluggy(`/v2/transactions?${qs}`);
+  let path = `/v2/transactions?${new URLSearchParams({ accountId, dateFrom: from, dateTo: to })}`;
+  for (let i = 0; i < 60; i++) {
+    const page: { results: PluggyTransaction[]; next?: string | null } = await pluggy(path);
     out.push(...(page.results ?? []));
-    if (!page.next) break;
-    after = page.next;
+    const next = page.next;
+    if (!next) break;
+    if (next.startsWith("?")) path = `/v2/transactions${next}`;
+    else if (next.startsWith("/")) path = next;
+    else if (next.startsWith("http")) path = next.replace(API, "");
+    else path = `/v2/transactions?${new URLSearchParams({ accountId, dateFrom: from, dateTo: to, after: next })}`;
   }
   return out;
+}
+
+async function latestBill(accountId: string): Promise<PluggyBill | null> {
+  try {
+    const data = await pluggy<{ results?: PluggyBill[] } | PluggyBill[]>(`/bills?accountId=${encodeURIComponent(accountId)}`);
+    const bills = Array.isArray(data) ? data : (data.results ?? []);
+    return [...bills].sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------- sincronização
@@ -128,29 +157,32 @@ export async function saveItem(admin: SupabaseClient, userId: string, itemId: st
   return item;
 }
 
-export type PluggySyncResult = { items: number; accounts: number; inserted: number; errors: string[] };
+export type PluggySyncResult = { items: number; accounts: number; inserted: number; updated: number; errors: string[] };
 
 /**
  * Busca contas e lançamentos de todas as conexões.
- * Primeira vez: últimos 12 meses. Depois: desde a última sincronização (com 10 dias de margem).
- * Lançamentos iguais (mesma data e valor) a um extrato importado manualmente são ignorados.
+ * Primeira vez (ou após mudança de formato): últimos 12 meses. Depois: desde a última sincronização (−10 dias).
+ * Lançamentos iguais (mesma data e valor) a extratos importados à mão são ignorados.
+ * Lançamentos já existentes têm só os dados atualizados; a categoria que você escolheu é mantida.
  */
 export async function syncPluggy(admin: SupabaseClient, userId: string): Promise<PluggySyncResult> {
-  const { data: items } = await admin.from("pluggy_items").select("id, last_sync_at").eq("user_id", userId);
+  const { data: items } = await admin.from("pluggy_items").select("id, last_sync_at, sync_version").eq("user_id", userId);
   const { data: rulesRaw } = await admin.from("finance_rules").select("pattern, category_id").eq("user_id", userId);
   const rules = (rulesRaw ?? []) as Rule[];
-  const today = new Date().toISOString().slice(0, 10);
-  const result: PluggySyncResult = { items: 0, accounts: 0, inserted: 0, errors: [] };
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const in60 = new Date(now.getTime() + 60 * 86400_000).toISOString().slice(0, 10); // parcelas futuras do cartão
+  const result: PluggySyncResult = { items: 0, accounts: 0, inserted: 0, updated: 0, errors: [] };
 
   for (const it of items ?? []) {
     try {
-      const item = await saveItem(admin, userId, it.id);
+      await saveItem(admin, userId, it.id);
       const accounts = await listAccounts(it.id);
-      const from = it.last_sync_at
-        ? new Date(new Date(it.last_sync_at).getTime() - 10 * 86400_000).toISOString().slice(0, 10)
-        : new Date(Date.now() - 365 * 86400_000).toISOString().slice(0, 10);
+      const full = !it.last_sync_at || (it.sync_version ?? 1) < SYNC_VERSION;
+      const from = full
+        ? new Date(now.getTime() - 365 * 86400_000).toISOString().slice(0, 10)
+        : new Date(new Date(it.last_sync_at).getTime() - 10 * 86400_000).toISOString().slice(0, 10);
 
-      // Lançamentos de extratos importados à mão no mesmo período (para não duplicar)
       const { data: manual } = await admin
         .from("finance_transactions")
         .select("tx_date, amount")
@@ -161,60 +193,98 @@ export async function syncPluggy(admin: SupabaseClient, userId: string): Promise
 
       for (const acc of accounts) {
         const card = isCard(acc);
+        const bill = card ? await latestBill(acc.id) : null;
+        const accountName = acc.marketingName || acc.name;
         await admin.from("pluggy_accounts").upsert({
           id: acc.id,
           user_id: userId,
           item_id: it.id,
           type: acc.type,
           subtype: acc.subtype,
-          name: acc.marketingName || acc.name,
+          name: accountName,
           number: acc.number ?? null,
           balance: acc.balance ?? null,
           credit_limit: acc.creditData?.creditLimit ?? null,
           available_credit: acc.creditData?.availableCreditLimit ?? null,
           currency: acc.currencyCode ?? "BRL",
-          updated_at: new Date().toISOString(),
+          bill_amount: bill?.totalAmount ?? null,
+          bill_due_date: bill?.dueDate ? bill.dueDate.slice(0, 10) : null,
+          updated_at: now.toISOString(),
         });
         result.accounts++;
 
-        const txs = await listTransactions(acc.id, from, today);
-        const accountLabel = `${item.connector?.name ?? "Banco"} · ${acc.marketingName || acc.name}`;
+        const txs = await listTransactions(acc.id, from, card ? in60 : today);
         const rows = txs
           .map((t) => {
+            const description = (t.description || t.descriptionRaw || "Lançamento").replace(/\s+/g, " ").trim();
             // Cartão: positivo = compra. Guardamos sempre saída como negativo.
-            const signed = card ? -t.amount : t.amount;
-            const amount = Math.round(signed * 100) / 100;
-            const date = spDate(t.date);
+            const amount = Math.round((card ? -t.amount : t.amount) * 100) / 100;
+            const meta = t.creditCardMetadata ?? null;
+            const inst =
+              meta?.totalInstallments && meta.totalInstallments > 1
+                ? { n: meta.installmentNumber ?? 1, total: meta.totalInstallments }
+                : card
+                  ? parseInstallment(description)
+                  : null;
             return {
               user_id: userId,
-              tx_date: date,
-              description: (t.description || t.descriptionRaw || "Lançamento").replace(/\s+/g, " ").trim(),
+              tx_date: spDate(t.date),
+              description,
               amount,
               balance: card ? null : (t.balance ?? null),
-              category_id: categorize(t.description || t.descriptionRaw || "", rules),
-              account: accountLabel,
+              account: accountName,
+              pluggy_account_id: acc.id,
               source: "pluggy",
               external_id: t.id,
               status: t.status ?? null,
               provider_category: t.category ?? null,
+              method: detectMethod(description, { isCard: card, paymentMethod: t.paymentData?.paymentMethod }),
+              installment_number: inst?.n ?? null,
+              total_installments: inst?.total ?? null,
+              purchase_total: meta?.totalAmount ?? null,
               hash: `pluggy:${t.id}`,
             };
           })
           .filter((r) => r.amount !== 0 && !manualKeys.has(`${r.tx_date}|${r.amount.toFixed(2)}`));
 
-        for (let i = 0; i < rows.length; i += 500) {
+        // Quais já existem?
+        const existing = new Set<string>();
+        for (let i = 0; i < rows.length; i += 200) {
+          const { data } = await admin
+            .from("finance_transactions")
+            .select("hash")
+            .eq("user_id", userId)
+            .in(
+              "hash",
+              rows.slice(i, i + 200).map((r) => r.hash),
+            );
+          (data ?? []).forEach((d: { hash: string }) => existing.add(d.hash));
+        }
+        const fresh = rows
+          .filter((r) => !existing.has(r.hash))
+          .map((r) => ({ ...r, category_id: categorize(r.description, rules) }));
+        const known = rows.filter((r) => existing.has(r.hash));
+
+        for (let i = 0; i < fresh.length; i += 500) {
           const { data, error } = await admin
             .from("finance_transactions")
-            .upsert(rows.slice(i, i + 500), { onConflict: "user_id,hash", ignoreDuplicates: true })
+            .upsert(fresh.slice(i, i + 500), { onConflict: "user_id,hash", ignoreDuplicates: true })
             .select("id");
           if (error) throw new Error(error.message);
           result.inserted += data?.length ?? 0;
+        }
+        // Atualiza dados (status, parcela, forma de pagamento) sem mexer na categoria escolhida
+        for (let i = 0; i < known.length; i += 500) {
+          const chunk = known.slice(i, i + 500);
+          const { error } = await admin.from("finance_transactions").upsert(chunk, { onConflict: "user_id,hash" });
+          if (error) throw new Error(error.message);
+          result.updated += chunk.length;
         }
       }
 
       await admin
         .from("pluggy_items")
-        .update({ last_sync_at: new Date().toISOString(), last_error: null })
+        .update({ last_sync_at: now.toISOString(), last_error: null, sync_version: SYNC_VERSION })
         .eq("id", it.id);
       result.items++;
     } catch (e) {

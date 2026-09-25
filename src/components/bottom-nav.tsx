@@ -2,18 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Dumbbell, Home, LayoutGrid, UtensilsCrossed } from "lucide-react";
+import { BarChart3, Dumbbell, Home, LayoutGrid, UtensilsCrossed, Wallet } from "lucide-react";
 
 const TABS = [
   { href: "/", label: "Início", icon: Home, match: ["/"] },
   { href: "/treino", label: "Treino", icon: Dumbbell, match: ["/treino", "/cardio"] },
   { href: "/dieta", label: "Dieta", icon: UtensilsCrossed, match: ["/dieta"] },
+  { href: "/financas", label: "Finanças", icon: Wallet, match: ["/financas"] },
   { href: "/analises", label: "Análises", icon: BarChart3, match: ["/analises"] },
   {
     href: "/mais",
     label: "Mais",
     icon: LayoutGrid,
-    match: ["/mais", "/diario", "/lembretes", "/fotos", "/financas", "/metas", "/config"],
+    match: ["/mais", "/diario", "/lembretes", "/fotos", "/metas", "/config"],
   },
 ];
 
@@ -32,7 +33,7 @@ export function BottomNav() {
             <li key={href} className="flex-1">
               <Link
                 href={href}
-                className={`flex flex-col items-center gap-0.5 pt-2 pb-1.5 text-[11px] font-medium ${
+                className={`flex flex-col items-center gap-0.5 pt-2 pb-1.5 text-[10px] font-medium ${
                   active ? "text-accent" : "text-muted"
                 }`}
               >

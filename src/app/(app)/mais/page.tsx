@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { Bell, BookOpen, Camera, Footprints, Settings, Target, Wallet } from "lucide-react";
+import { Bell, BookOpen, Camera, Footprints, Settings, Target } from "lucide-react";
 import { PageTitle } from "@/components/ui";
 
 const ITEMS = [
   { href: "/diario", label: "Diário", desc: "Como foi o dia, humor e energia", icon: BookOpen },
-  { href: "/financas", label: "Finanças", desc: "Extratos, gastos e patrimônio", icon: Wallet },
   { href: "/fotos", label: "Fotos e medidas", desc: "Foto do dia, peso e cintura", icon: Camera },
   { href: "/lembretes", label: "Lembretes", desc: "Notificações programadas", icon: Bell },
   { href: "/cardio", label: "Cardio", desc: "Corrida, bike, tênis (Strava)", icon: Footprints },

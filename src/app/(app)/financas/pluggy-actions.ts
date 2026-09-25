@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { checkBudgetAlerts } from "@/lib/finance/alerts";
 import { createConnectToken, pluggyConfigured, saveItem, syncPluggy } from "@/lib/pluggy";
 import { requireUser } from "@/lib/supabase/server";
 
@@ -12,7 +13,7 @@ function refresh() {
 }
 
 function summary(r: Awaited<ReturnType<typeof syncPluggy>>) {
-  const base = `${r.inserted} lançamento(s) novo(s) em ${r.accounts} conta(s)`;
+  const base = `${r.inserted} lançamento(s) novo(s) em ${r.accounts} conta(s)${r.updated ? `, ${r.updated} atualizado(s)` : ""}`;
   return r.errors.length ? `${base}. Erro: ${r.errors[0]}` : `${base}.`;
 }
 
@@ -34,6 +35,7 @@ export async function addPluggyItem(itemId: string): Promise<{ ok: boolean; mess
   try {
     const item = await saveItem(supabase, user.id, id);
     const r = await syncPluggy(supabase, user.id);
+    await checkBudgetAlerts(supabase, user.id).catch(() => 0);
     refresh();
     return { ok: r.errors.length === 0, message: `${item.connector?.name ?? "Conexão"} adicionada. ${summary(r)}` };
   } catch (e) {
@@ -45,6 +47,7 @@ export async function syncPluggyNow(): Promise<{ ok: boolean; message: string }>
   const { supabase, user } = await requireUser();
   try {
     const r = await syncPluggy(supabase, user.id);
+    await checkBudgetAlerts(supabase, user.id).catch(() => 0);
     refresh();
     return { ok: r.errors.length === 0, message: summary(r) };
   } catch (e) {

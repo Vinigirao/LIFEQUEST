@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { checkBudgetAlerts } from "@/lib/finance/alerts";
 import { getOwner } from "@/lib/owner";
 import { pluggyConfigured, syncPluggy } from "@/lib/pluggy";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -14,6 +15,8 @@ export async function POST(request: NextRequest) {
   }
   if (!pluggyConfigured()) return NextResponse.json({ skipped: "pluggy não configurada" });
   const owner = await getOwner();
-  const result = await syncPluggy(createAdminClient(), owner.id);
-  return NextResponse.json(result);
+  const admin = createAdminClient();
+  const result = await syncPluggy(admin, owner.id);
+  const alerts = await checkBudgetAlerts(admin, owner.id).catch(() => 0);
+  return NextResponse.json({ ...result, alerts });
 }

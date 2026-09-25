@@ -16,7 +16,7 @@ Barra inferior: **Início · Treino · Dieta · Análises · Mais**
 | **Dieta** | Kcal e macros do dia, atalhos de 1 toque com horário da refeição, refeição livre e registro manual |
 | **Análises** | Balanço de energia (quanto comer para o seu objetivo), peso, o que anda junto com o seu desempenho (dieta, humor e descanso do dia anterior, horas desde a última refeição), humor × treino e consistência |
 | **Mais → Diário** | Texto do dia com humor e energia |
-| **Mais → Finanças** | Importa o .xlsx do BTG ou .csv de qualquer banco, categoriza sozinho por regras, gastos por categoria, 6 meses e patrimônio |
+| **Finanças** | Open Finance (Pluggy): contas e cartões, gasto por forma de pagamento (cartão, Pix, débito, boleto), parcelas futuras, assinaturas, metas de gasto com alerta, categorias automáticas |
 | **Mais → Fotos** | Foto diária, peso, cintura e comparação antes/depois |
 | **Mais → Lembretes** | Notificações push programadas |
 
@@ -28,6 +28,8 @@ No Supabase, **SQL Editor → New query**, cole o arquivo novo de `supabase/migr
 
 - `0001_init.sql`: estrutura inicial
 - `0002_upgrade.sql`: Strava com FC/calorias e força, esforço (RPE), horário das refeições, perfil físico, finanças
+- `0003_pluggy.sql`: conexões do Open Finance
+- `0004_financas_pro.sql`: forma de pagamento, parcelas, faturas e metas de gastos
 
 Depois do `0002`, preencha **Configurações → Seu perfil** (altura, ano de nascimento, sexo, objetivo) para a aba Análises calcular o gasto calórico, e toque em **Sincronizar** no Cardio algumas vezes: cada sincronização busca FC e calorias de até 25 atividades antigas.
 
@@ -51,11 +53,11 @@ Traz contas, cartões e lançamentos de todos os bancos para a aba Finanças, 1 
 1. Conecte os bancos em **meu.pluggy.ai**.
 2. Em **dashboard.pluggy.ai**, crie uma aplicação, ative o conector **MeuPluggy** e copie o **Client ID** e o **Client Secret**.
 3. Na Vercel, crie `PLUGGY_CLIENT_ID` e `PLUGGY_CLIENT_SECRET` (Sensitive ligado) e faça Redeploy.
-4. No Supabase, rode `supabase/migrations/0003_pluggy.sql` e depois `supabase/cron-pluggy.sql` (troque `SEU_CRON_SECRET`).
-5. No app: **Mais → Finanças → Conectar banco** → escolha **MeuPluggy** → autorize. Repita para cada banco.
+4. No Supabase, rode `supabase/migrations/0003_pluggy.sql`, `0004_financas_pro.sql` e depois `supabase/cron-pluggy.sql` (troque `SEU_CRON_SECRET`).
+5. No app: **Finanças → Contas → Conectar banco** → escolha **MeuPluggy** → autorize. Repita para cada banco.
 6. Opcional: no dashboard da Pluggy, cadastre o webhook `https://SEU-APP/api/pluggy/webhook?token=SEU_CRON_SECRET` para sincronizar assim que a Pluggy atualizar.
 
-Lançamentos iguais (mesma data e valor) a extratos já importados à mão são ignorados, para não duplicar.
+Em **Finanças → Metas** crie limites mensais (total, Pix, cartão, parcelas ou uma categoria). O app manda notificação ao chegar em 80% e ao passar de 100%. Pagamentos de fatura e transferências entre suas contas não contam como gasto.
 
 ## Passo a passo para colocar no ar
 
