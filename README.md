@@ -6,8 +6,32 @@ App pessoal para centralizar a rotina: diário, lembretes com push, treino, card
 
 ## Abas
 
-| Aba | O que faz |
+Barra inferior: **Início · Treino · Dieta · Análises · Mais**
+
+| Tela | O que faz |
 | --- | --- |
+| **Início** | Humor e energia do dia com um toque, resumo (kcal, treino, cardio, gastos) e metas com semáforo verde → amarelo → vermelho |
+| **Treino → Força** | Séries (carga × repetições), modelos, recordes, reação de esforço (RPE) e vínculo com o treino de força do Strava (FC e calorias) |
+| **Treino → Cardio** | Atividades do Strava com FC média/máxima, calorias e esforço; registro manual |
+| **Dieta** | Kcal e macros do dia, atalhos de 1 toque com horário da refeição, refeição livre e registro manual |
+| **Análises** | Balanço de energia (quanto comer para o seu objetivo), peso, o que anda junto com o seu desempenho (dieta, humor e descanso do dia anterior, horas desde a última refeição), humor × treino e consistência |
+| **Mais → Diário** | Texto do dia com humor e energia |
+| **Mais → Finanças** | Importa o .xlsx do BTG ou .csv de qualquer banco, categoriza sozinho por regras, gastos por categoria, 6 meses e patrimônio |
+| **Mais → Fotos** | Foto diária, peso, cintura e comparação antes/depois |
+| **Mais → Lembretes** | Notificações push programadas |
+
+As refeições **Refeição 1** (545 kcal) e **Refeição 2** (528 kcal), metas de exemplo e categorias de finanças são criadas automaticamente. Tudo é editável no app.
+
+## Atualizando o banco (sempre que houver migration nova)
+
+No Supabase, **SQL Editor → New query**, cole o arquivo novo de `supabase/migrations/` e clique em **Run**. Os arquivos podem ser rodados mais de uma vez sem apagar nada.
+
+- `0001_init.sql`: estrutura inicial
+- `0002_upgrade.sql`: Strava com FC/calorias e força, esforço (RPE), horário das refeições, perfil físico, finanças
+
+Depois do `0002`, preencha **Configurações → Seu perfil** (altura, ano de nascimento, sexo, objetivo) para a aba Análises calcular o gasto calórico, e toque em **Sincronizar** no Cardio algumas vezes: cada sincronização busca FC e calorias de até 25 atividades antigas.
+
+--- | --- |
 | **Metas** (início) | Visão geral de todas as metas com semáforo verde → amarelo → vermelho, resumo do dia e da semana |
 | **Diário** | Uma entrada por dia, com humor e energia de 1 a 5 |
 | **Lembretes** | Lembretes únicos, diários ou em dias da semana, com notificação push |
@@ -151,4 +175,4 @@ npm run dev                  # abre em http://localhost:3000
 
 ## Próximas ideias
 
-Finanças (upload de CSV com categorização), dias de bebida e gastos com erva, sono, hábitos genéricos, revisão semanal, correlações entre módulos e módulo de trabalho (brag doc, 1:1s, delegações).
+Dias de bebida e gastos com erva, sono, hábitos genéricos, revisão semanal, correlações entre módulos e módulo de trabalho (brag doc, 1:1s, delegações).

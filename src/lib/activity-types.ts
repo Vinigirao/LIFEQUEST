@@ -21,8 +21,15 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   HighIntensityIntervalTraining: "HIIT",
   Yoga: "Yoga",
   Pilates: "Pilates",
+  WeightTraining: "Musculação",
+  Crossfit: "Crossfit",
   Workout: "Outro",
 };
+
+/** Atividades de força: aparecem na aba Treino (e podem ser ligadas a um treino com cargas). */
+export const STRENGTH_TYPES = new Set(["WeightTraining", "Crossfit"]);
+
+export const isStrength = (type: string) => STRENGTH_TYPES.has(type);
 
 /** Opções do formulário manual */
 export const MANUAL_TYPES = ["Run", "Walk", "Ride", "Swim", "Tennis", "Elliptical", "Rowing", "Workout"];

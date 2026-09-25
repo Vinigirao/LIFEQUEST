@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { safeDate } from "@/lib/dates";
+import { nowTimeSP, safeDate, safeTime } from "@/lib/dates";
 import { requireUser } from "@/lib/supabase/server";
 
 const num = (v: FormDataEntryValue | null) => {
@@ -38,6 +38,7 @@ export async function logSavedMeal(formData: FormData) {
     name: meal.name,
     saved_meal_id: meal.id,
     servings,
+    eaten_at: safeTime(String(formData.get("eaten_at") ?? "")) ?? nowTimeSP(),
     kcal: sum("kcal"),
     protein_g: sum("protein_g"),
     carbs_g: sum("carbs_g"),
@@ -58,8 +59,17 @@ export async function logManualMeal(formData: FormData) {
     carbs_g: num(formData.get("carbs_g")),
     fat_g: num(formData.get("fat_g")),
     is_free_meal: isFree,
+    eaten_at: safeTime(String(formData.get("eaten_at") ?? "")) ?? nowTimeSP(),
     notes: String(formData.get("notes") ?? "").trim() || null,
   });
+  refresh();
+}
+
+export async function updateMealTime(id: string, time: string) {
+  const { supabase } = await requireUser();
+  const t = safeTime(time);
+  if (!t) return;
+  await supabase.from("meal_logs").update({ eaten_at: t }).eq("id", id);
   refresh();
 }
 

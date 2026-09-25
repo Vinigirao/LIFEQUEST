@@ -3,25 +3,11 @@ import { SubmitButton } from "@/components/submit-button";
 import { DateNav, Empty, PageTitle, SectionTitle } from "@/components/ui";
 import { formatDayShort, safeDate } from "@/lib/dates";
 import { requireUser } from "@/lib/supabase/server";
+import { DayScale } from "@/components/day-scale";
+import { ENERGY_EMOJI, MOOD_EMOJI } from "@/lib/mood";
 import { saveJournal } from "./actions";
 
 type Entry = { entry_date: string; content: string; mood: number | null; energy: number | null };
-
-function Scale({ name, label, value }: { name: string; label: string; value: number | null }) {
-  return (
-    <div>
-      <p className="label">{label}</p>
-      <div className="flex gap-2">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <label key={n} className="flex-1">
-            <input type="radio" name={name} value={n} defaultChecked={value === n} className="peer sr-only" />
-            <span className="chip w-full">{n}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default async function DiarioPage({ searchParams }: PageProps<"/diario">) {
   const { supabase } = await requireUser();
@@ -44,6 +30,17 @@ export default async function DiarioPage({ searchParams }: PageProps<"/diario">)
       <PageTitle title="Diário" subtitle="Como foi o dia?" />
       <DateNav basePath="/diario" date={date} />
 
+      <div className="card mb-3 space-y-3">
+        <div>
+          <p className="label">Humor</p>
+          <DayScale key={`m-${date}`} field="mood" value={e?.mood ?? null} date={date} />
+        </div>
+        <div>
+          <p className="label">Energia</p>
+          <DayScale key={`e-${date}`} field="energy" value={e?.energy ?? null} date={date} />
+        </div>
+      </div>
+
       {/* key força o formulário a recarregar os valores ao trocar de dia */}
       <form key={date} action={saveJournal} className="card space-y-4">
         <input type="hidden" name="date" value={date} />
@@ -54,9 +51,7 @@ export default async function DiarioPage({ searchParams }: PageProps<"/diario">)
           defaultValue={e?.content ?? ""}
           placeholder="O que aconteceu hoje, o que pensou, o que aprendeu..."
         />
-        <Scale name="mood" label="Humor (1 a 5)" value={e?.mood ?? null} />
-        <Scale name="energy" label="Energia (1 a 5)" value={e?.energy ?? null} />
-        <SubmitButton>Salvar</SubmitButton>
+        <SubmitButton>Salvar texto</SubmitButton>
       </form>
 
       <SectionTitle>Últimos dias</SectionTitle>
@@ -70,9 +65,8 @@ export default async function DiarioPage({ searchParams }: PageProps<"/diario">)
                 <div className="flex items-center justify-between text-xs text-muted">
                   <span className="first-letter:uppercase inline-block">{formatDayShort(r.entry_date)}</span>
                   <span>
-                    {r.mood ? `humor ${r.mood}` : ""}
-                    {r.mood && r.energy ? " · " : ""}
-                    {r.energy ? `energia ${r.energy}` : ""}
+                    {r.mood ? MOOD_EMOJI[r.mood - 1] : ""}
+                    {r.energy ? ` ${ENERGY_EMOJI[r.energy - 1]}` : ""}
                   </span>
                 </div>
                 <p className="mt-1 line-clamp-2 text-sm">{r.content || "(sem texto)"}</p>

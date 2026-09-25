@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Dumbbell, Flame, Footprints, Pencil } from "lucide-react";
+import { BarChart3, Camera, Dumbbell, Flame, Footprints, Pencil, UtensilsCrossed, Wallet } from "lucide-react";
+import { DayScale } from "@/components/day-scale";
 import { Empty, PageTitle, ProgressBar, SectionTitle, StatusDot, fmt } from "@/components/ui";
-import { formatDayLong, todayISO } from "@/lib/dates";
+import { formatDayLong, nowTimeSP, todayISO } from "@/lib/dates";
 import {
   METRICS,
   PERIOD_LABELS,
@@ -31,16 +32,39 @@ export default async function MetasOverviewPage() {
   progress.forEach((p) => byPeriod[p.period].push(p));
 
   const week = periodRange("week", today);
+  const month = periodRange("month", today);
   const kcalToday = metricValue("kcal_media", data, today, today);
   const protToday = metricValue("proteina_media", data, today, today);
   const trainedToday = metricValue("treinos", data, today, today) ?? 0;
   const cardioKmWeek = metricValue("cardio_km", data, week.from, today) ?? 0;
+  const spentMonth = metricValue("despesas", data, month.from, today) ?? 0;
   const greens = progress.filter((p) => p.status === "green").length;
+
+  const { data: todayEntry } = await supabase
+    .from("journal_entries")
+    .select("mood, energy")
+    .eq("entry_date", today)
+    .maybeSingle();
+
+  const hour = Number(nowTimeSP().slice(0, 2));
+  const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
+
+  const tiles = [
+    { href: "/dieta", icon: Flame, value: fmt(kcalToday), label: `kcal hoje · ${fmt(protToday)} g prot` },
+    { href: "/treino", icon: Dumbbell, value: trainedToday > 0 ? "Feito" : "–", label: "treino de força hoje" },
+    { href: "/cardio", icon: Footprints, value: fmt(cardioKmWeek, 1), label: "km de cardio na semana" },
+    {
+      href: "/financas",
+      icon: Wallet,
+      value: spentMonth.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }),
+      label: "gastos no mês",
+    },
+  ];
 
   return (
     <>
       <PageTitle
-        title="Visão geral"
+        title={greeting}
         subtitle={formatDayLong(today)}
         action={
           <Link href="/metas" className="btn btn-sm">
@@ -49,22 +73,43 @@ export default async function MetasOverviewPage() {
         }
       />
 
-      <div className="grid grid-cols-3 gap-2">
-        <div className="card p-3">
-          <Flame size={18} className="text-accent" />
-          <p className="mt-2 text-xl font-bold">{fmt(kcalToday)}</p>
-          <p className="text-xs text-muted">kcal hoje · {fmt(protToday)} g prot</p>
+      <div className="card mb-3 space-y-3">
+        <p className="text-sm font-semibold">Como você está hoje?</p>
+        <div>
+          <p className="label">Humor</p>
+          <DayScale field="mood" value={todayEntry?.mood ?? null} />
         </div>
-        <div className="card p-3">
-          <Dumbbell size={18} className="text-accent" />
-          <p className="mt-2 text-xl font-bold">{trainedToday > 0 ? "Feito" : "–"}</p>
-          <p className="text-xs text-muted">treino hoje</p>
+        <div>
+          <p className="label">Energia</p>
+          <DayScale field="energy" value={todayEntry?.energy ?? null} />
         </div>
-        <div className="card p-3">
-          <Footprints size={18} className="text-accent" />
-          <p className="mt-2 text-xl font-bold">{fmt(cardioKmWeek, 1)}</p>
-          <p className="text-xs text-muted">km na semana</p>
-        </div>
+        <Link href="/diario" className="block text-xs text-accent">
+          Escrever no diário →
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {tiles.map(({ href, icon: Icon, value, label }) => (
+          <Link key={href} href={href} className="card p-3 transition active:scale-[0.98]">
+            <Icon size={18} className="text-accent" />
+            <p className="mt-2 text-xl font-bold">{value}</p>
+            <p className="text-xs text-muted">{label}</p>
+          </Link>
+        ))}
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2 text-center text-[11px] text-muted">
+        {[
+          { href: "/dieta", icon: UtensilsCrossed, label: "Refeição" },
+          { href: "/treino", icon: Dumbbell, label: "Treino" },
+          { href: "/fotos", icon: Camera, label: "Foto" },
+          { href: "/analises", icon: BarChart3, label: "Análises" },
+        ].map(({ href, icon: Icon, label }) => (
+          <Link key={label} href={href} className="flex flex-col items-center gap-1 rounded-xl border border-line bg-card py-2.5">
+            <Icon size={18} className="text-fg" />
+            {label}
+          </Link>
+        ))}
       </div>
 
       {progress.length > 0 && (

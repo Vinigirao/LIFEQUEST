@@ -1,9 +1,12 @@
-import { Trash2 } from "lucide-react";
+import { Flame, HeartPulse, Trash2 } from "lucide-react";
+import { RpePicker } from "@/components/rpe-picker";
 import { SubmitButton } from "@/components/submit-button";
-import { Empty, PageTitle, SectionTitle, fmt } from "@/components/ui";
+import { TrainingTabs } from "@/components/training-tabs";
+import { Empty, SectionTitle, fmt } from "@/components/ui";
 import {
   MANUAL_TYPES,
   PACE_TYPES,
+  STRENGTH_TYPES,
   activityLabel,
   formatDuration,
   formatPace,
@@ -21,6 +24,9 @@ type Cardio = {
   duration_min: number;
   distance_km: number | null;
   avg_hr: number | null;
+  max_hr: number | null;
+  calories: number | null;
+  rpe: number | null;
   source: "manual" | "strava";
 };
 
@@ -34,7 +40,8 @@ export default async function CardioPage({ searchParams }: PageProps<"/cardio">)
     supabase.from("strava_connections").select("athlete_id, last_sync_at").maybeSingle(),
     supabase
       .from("cardio_sessions")
-      .select("id, activity_date, activity_type, name, duration_min, distance_km, avg_hr, source")
+      .select("id, activity_date, activity_type, name, duration_min, distance_km, avg_hr, max_hr, calories, rpe, source")
+      .not("activity_type", "in", `(${[...STRENGTH_TYPES].join(",")})`)
       .order("activity_date", { ascending: false })
       .order("started_at", { ascending: false, nullsFirst: false })
       .limit(40),
@@ -48,10 +55,11 @@ export default async function CardioPage({ searchParams }: PageProps<"/cardio">)
   const week = list.filter((r) => r.activity_date >= weekStart);
   const weekMin = week.reduce((s, r) => s + r.duration_min, 0);
   const weekKm = week.reduce((s, r) => s + (r.distance_km ?? 0), 0);
+  const weekKcal = week.reduce((s, r) => s + (r.calories ?? 0), 0);
 
   return (
     <>
-      <PageTitle title="Cardio" subtitle="Apple Watch → Strava → LIFEQUEST" />
+      <TrainingTabs active="cardio" />
 
       {sp.strava === "ok" && <p className="mb-3 rounded-xl bg-ok/15 p-3 text-sm text-ok">Strava conectado.</p>}
       {sp.strava === "erro" && (
@@ -64,8 +72,8 @@ export default async function CardioPage({ searchParams }: PageProps<"/cardio">)
             <p className="font-semibold">Strava</p>
             <p className="text-xs text-muted">
               {conn
-                ? `Conectado${conn.last_sync_at ? ` · última sincronização ${formatDateTime(conn.last_sync_at)}` : ""}`
-                : "Importa corridas, bike, tênis etc. automaticamente"}
+                ? `Conectado${conn.last_sync_at ? ` · sincronizado ${formatDateTime(conn.last_sync_at)}` : ""}`
+                : "Importa corridas, bike, tênis e musculação com FC e calorias"}
             </p>
           </div>
           {conn ? (
@@ -78,58 +86,20 @@ export default async function CardioPage({ searchParams }: PageProps<"/cardio">)
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-        <div className="card p-3">
-          <p className="text-xl font-bold">{week.length}</p>
-          <p className="text-xs text-muted">sessões</p>
-        </div>
-        <div className="card p-3">
-          <p className="text-xl font-bold">{formatDuration(weekMin)}</p>
-          <p className="text-xs text-muted">tempo</p>
-        </div>
-        <div className="card p-3">
-          <p className="text-xl font-bold">{fmt(weekKm, 1)}</p>
-          <p className="text-xs text-muted">km</p>
-        </div>
+      <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+        {[
+          { v: String(week.length), l: "sessões" },
+          { v: formatDuration(weekMin), l: "tempo" },
+          { v: fmt(weekKm, 1), l: "km" },
+          { v: fmt(weekKcal), l: "kcal" },
+        ].map((x) => (
+          <div key={x.l} className="card px-1 py-3">
+            <p className="text-lg font-bold">{x.v}</p>
+            <p className="text-[11px] text-muted">{x.l}</p>
+          </div>
+        ))}
       </div>
       <p className="mt-1 text-center text-xs text-muted">nesta semana</p>
-
-      <SectionTitle>Registrar manualmente</SectionTitle>
-      <form action={addCardio} className="card space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Tipo</label>
-            <select name="activity_type" className="input" defaultValue="Run">
-              {MANUAL_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {activityLabel(t)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Data</label>
-            <input type="date" name="date" defaultValue={today} max={today} className="input" />
-          </div>
-          <div>
-            <label className="label">Duração (min)</label>
-            <input name="duration_min" inputMode="decimal" className="input" required />
-          </div>
-          <div>
-            <label className="label">Distância (km)</label>
-            <input name="distance_km" inputMode="decimal" className="input" />
-          </div>
-          <div>
-            <label className="label">FC média</label>
-            <input name="avg_hr" inputMode="numeric" className="input" />
-          </div>
-          <div>
-            <label className="label">Observação</label>
-            <input name="notes" className="input" />
-          </div>
-        </div>
-        <SubmitButton>Salvar</SubmitButton>
-      </form>
 
       <SectionTitle>Histórico</SectionTitle>
       {list.length === 0 ? (
@@ -139,35 +109,92 @@ export default async function CardioPage({ searchParams }: PageProps<"/cardio">)
           {list.map((r) => {
             const pace = PACE_TYPES.has(r.activity_type) ? formatPace(r.duration_min, r.distance_km) : null;
             return (
-              <li key={r.id} className="card flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">
-                    {activityLabel(r.activity_type)}
-                    {r.name && r.source === "strava" ? <span className="font-normal text-muted"> · {r.name}</span> : null}
-                  </p>
-                  <p className="text-xs text-muted first-letter:uppercase">
-                    {formatDayShort(r.activity_date)} · {formatDuration(r.duration_min)}
-                    {r.distance_km ? ` · ${fmt(r.distance_km, 2)} km` : ""}
-                    {pace ? ` · ${pace}` : ""}
-                    {r.avg_hr ? ` · ${r.avg_hr} bpm` : ""}
-                  </p>
+              <li key={r.id} className="card">
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">
+                      {activityLabel(r.activity_type)}
+                      {r.name && r.source === "strava" ? <span className="font-normal text-muted"> · {r.name}</span> : null}
+                    </p>
+                    <p className="text-xs text-muted first-letter:uppercase">
+                      {formatDayShort(r.activity_date)} · {formatDuration(r.duration_min)}
+                      {r.distance_km ? ` · ${fmt(r.distance_km, 2)} km` : ""}
+                      {pace ? ` · ${pace}` : ""}
+                    </p>
+                  </div>
+                  {r.source === "strava" && (
+                    <span className="rounded-md bg-[#fc4c02]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#fc4c02]">
+                      STRAVA
+                    </span>
+                  )}
+                  <form action={deleteCardio}>
+                    <input type="hidden" name="id" value={r.id} />
+                    <SubmitButton className="p-1 text-muted" pendingText="…">
+                      <Trash2 size={16} />
+                    </SubmitButton>
+                  </form>
                 </div>
-                {r.source === "strava" && (
-                  <span className="rounded-md bg-[#fc4c02]/15 px-1.5 py-0.5 text-[10px] font-semibold text-[#fc4c02]">
-                    STRAVA
-                  </span>
-                )}
-                <form action={deleteCardio}>
-                  <input type="hidden" name="id" value={r.id} />
-                  <SubmitButton className="p-1 text-muted" pendingText="…">
-                    <Trash2 size={16} />
-                  </SubmitButton>
-                </form>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="flex gap-3 text-xs text-muted">
+                    {r.avg_hr ? (
+                      <span className="flex items-center gap-1">
+                        <HeartPulse size={13} className="text-bad" /> {r.avg_hr}
+                        {r.max_hr ? `/${r.max_hr}` : ""} bpm
+                      </span>
+                    ) : null}
+                    {r.calories ? (
+                      <span className="flex items-center gap-1">
+                        <Flame size={13} className="text-warn" /> {r.calories} kcal
+                      </span>
+                    ) : null}
+                  </div>
+                  <RpePicker kind="cardio" id={r.id} value={r.rpe} compact />
+                </div>
               </li>
             );
           })}
         </ul>
       )}
+
+      <details className="card mt-4">
+        <summary className="cursor-pointer font-semibold">Registrar manualmente</summary>
+        <form action={addCardio} className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">Tipo</label>
+              <select name="activity_type" className="input" defaultValue="Run">
+                {MANUAL_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {activityLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Data</label>
+              <input type="date" name="date" defaultValue={today} max={today} className="input" />
+            </div>
+            <div>
+              <label className="label">Duração (min)</label>
+              <input name="duration_min" inputMode="decimal" className="input" required />
+            </div>
+            <div>
+              <label className="label">Distância (km)</label>
+              <input name="distance_km" inputMode="decimal" className="input" />
+            </div>
+            <div>
+              <label className="label">FC média</label>
+              <input name="avg_hr" inputMode="numeric" className="input" />
+            </div>
+            <div>
+              <label className="label">Calorias</label>
+              <input name="calories" inputMode="numeric" className="input" />
+            </div>
+          </div>
+          <input name="notes" className="input" placeholder="Observação" />
+          <SubmitButton>Salvar</SubmitButton>
+        </form>
+      </details>
     </>
   );
 }

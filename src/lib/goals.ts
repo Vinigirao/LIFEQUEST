@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isStrength } from "./activity-types";
 import { addDays, daysInMonth, startOfMonth, startOfWeek, todayISO } from "./dates";
 
 export type MetricKey =
@@ -13,7 +14,8 @@ export type MetricKey =
   | "refeicoes_livres"
   | "diario_dias"
   | "fotos_dias"
-  | "peso";
+  | "peso"
+  | "despesas";
 
 export type Period = "day" | "week" | "month";
 export type Direction = "gte" | "lte";
@@ -40,6 +42,7 @@ export const METRICS: Record<MetricKey, MetricDef> = {
   diario_dias: { label: "Dias com diário", unit: "dias", kind: "sum", decimals: 0 },
   fotos_dias: { label: "Dias com foto", unit: "dias", kind: "sum", decimals: 0 },
   peso: { label: "Peso", unit: "kg", kind: "latest", decimals: 1 },
+  despesas: { label: "Gastos (finanças)", unit: "R$", kind: "sum", decimals: 0 },
 };
 
 export const PERIOD_LABELS: Record<Period, string> = {
@@ -59,8 +62,11 @@ export type Goal = {
 };
 
 export type GoalData = {
-  workouts: { session_date: string }[];
+  workouts: { session_date: string; strava_activity_id?: string | null }[];
+  /** Atividades de força do Strava que ainda não viraram treino com cargas (contam como treino) */
+  strengthActs?: { id: string; activity_date: string }[];
   cardio: { activity_date: string; duration_min: number; distance_km: number | null }[];
+  expenses?: { tx_date: string; amount: number }[];
   meals: {
     log_date: string;
     kcal: number;
@@ -95,11 +101,15 @@ export function periodRange(period: Period, today: string) {
 /** Busca, de uma vez, tudo que as metas precisam desde a data mais antiga usada. */
 export async function fetchGoalData(supabase: SupabaseClient, today = todayISO()): Promise<GoalData> {
   const from = [startOfWeek(today), startOfMonth(today)].sort()[0];
-  const [workouts, cardio, meals, journal, photos, weight] = await Promise.all([
-    supabase.from("workout_sessions").select("session_date").gte("session_date", from).lte("session_date", today),
+  const [workouts, cardio, meals, journal, photos, weight, expenses] = await Promise.all([
+    supabase
+      .from("workout_sessions")
+      .select("session_date, strava_activity_id")
+      .gte("session_date", from)
+      .lte("session_date", today),
     supabase
       .from("cardio_sessions")
-      .select("activity_date, duration_min, distance_km")
+      .select("id, activity_date, activity_type, duration_min, distance_km")
       .gte("activity_date", from)
       .lte("activity_date", today),
     supabase
@@ -122,12 +132,27 @@ export async function fetchGoalData(supabase: SupabaseClient, today = todayISO()
       .order("log_date", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from("finance_transactions")
+      .select("tx_date, amount, finance_categories(kind)")
+      .gte("tx_date", from)
+      .lte("tx_date", today)
+      .lt("amount", 0),
   ]);
+
+  const allActs = cardio.data ?? [];
+  const linked = new Set((workouts.data ?? []).map((w) => w.strava_activity_id).filter(Boolean));
+  type Cat = { kind: string } | { kind: string }[] | null;
+  const kindOf = (c: Cat) => (Array.isArray(c) ? c[0]?.kind : c?.kind);
 
   const num = (v: unknown) => Number(v ?? 0);
   return {
     workouts: workouts.data ?? [],
-    cardio: (cardio.data ?? []).map((c) => ({
+    strengthActs: allActs.filter((a) => isStrength(a.activity_type) && !linked.has(a.id)),
+    expenses: (expenses.data ?? [])
+      .filter((t) => kindOf(t.finance_categories as Cat) === "despesa")
+      .map((t) => ({ tx_date: t.tx_date, amount: -num(t.amount) })),
+    cardio: allActs.filter((c) => !isStrength(c.activity_type)).map((c) => ({
       activity_date: c.activity_date,
       duration_min: num(c.duration_min),
       distance_km: c.distance_km == null ? null : num(c.distance_km),
@@ -188,7 +213,12 @@ export function metricValue(metric: MetricKey, data: GoalData, from: string, to:
   const r = (d: string) => inRange(d, from, to);
   switch (metric) {
     case "treinos":
-      return data.workouts.filter((w) => r(w.session_date)).length;
+      return (
+        data.workouts.filter((w) => r(w.session_date)).length +
+        (data.strengthActs ?? []).filter((a) => r(a.activity_date)).length
+      );
+    case "despesas":
+      return (data.expenses ?? []).filter((e) => r(e.tx_date)).reduce((s, e) => s + e.amount, 0);
     case "cardio_sessoes":
       return data.cardio.filter((c) => r(c.activity_date)).length;
     case "cardio_minutos":
@@ -240,7 +270,7 @@ export function evaluateGoal(goal: Goal, data: GoalData, today = todayISO()): Go
     else if (value >= expected * 0.6) status = "yellow";
     else status = "red";
     const missing = Math.max(target - value, 0);
-    hint = missing > 0 ? `Faltam ${formatValue(goal.metric, missing)} ${def.unit}` : "Meta batida";
+    hint = missing > 0 ? `${missing <= 1 ? "Falta" : "Faltam"} ${formatValue(goal.metric, missing)} ${def.unit}` : "Meta batida";
   } else if (goal.direction === "lte") {
     const tolerance = def.kind === "sum" ? 0.9 : def.kind === "avg" ? 1.1 : 1.03;
     if (value > target * (def.kind === "sum" ? 1 : tolerance)) status = "red";

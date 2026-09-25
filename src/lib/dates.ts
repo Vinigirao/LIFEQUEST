@@ -104,3 +104,17 @@ export function zonedToUtc(dateIso: string, time: string, tz: string = TZ): Date
   const second = guess - tzOffsetMs(new Date(first), tz);
   return new Date(second);
 }
+
+/** Hora atual em São Paulo, "HH:MM". */
+export function nowTimeSP(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
+}
+
+/** Valida "HH:MM" (ou "HH:MM:SS"); devolve null se inválido. */
+export function safeTime(value: string | null | undefined): string | null {
+  const m = value?.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  return h < 24 && mi < 60 ? `${String(h).padStart(2, "0")}:${m[2]}` : null;
+}

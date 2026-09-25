@@ -40,6 +40,7 @@ export async function startWorkout(formData: FormData) {
       session_date: safeDate(String(formData.get("date") ?? "")),
       name: name || "Treino",
       template_id: templateId,
+      started_at: new Date().toISOString(),
     })
     .select("id")
     .single();
@@ -70,6 +71,63 @@ export async function deleteWorkout(formData: FormData) {
   revalidatePath("/treino");
   revalidatePath("/");
   redirect("/treino");
+}
+
+// ---------- vínculo com a atividade de força do Strava ----------
+
+export async function linkStrava(formData: FormData) {
+  const { supabase } = await requireUser();
+  const sessionId = String(formData.get("session_id"));
+  const activityId = String(formData.get("activity_id"));
+  const { data: act } = await supabase.from("cardio_sessions").select("started_at").eq("id", activityId).single();
+  await supabase
+    .from("workout_sessions")
+    .update({ strava_activity_id: activityId, started_at: act?.started_at ?? null })
+    .eq("id", sessionId);
+  revalidatePath(`/treino/${sessionId}`);
+  revalidatePath("/treino");
+}
+
+export async function unlinkStrava(formData: FormData) {
+  const { supabase } = await requireUser();
+  const sessionId = String(formData.get("session_id"));
+  await supabase.from("workout_sessions").update({ strava_activity_id: null }).eq("id", sessionId);
+  revalidatePath(`/treino/${sessionId}`);
+  revalidatePath("/treino");
+}
+
+/** Cria um treino (para lançar as cargas) a partir de uma atividade de força do Strava. */
+export async function workoutFromStrava(formData: FormData) {
+  const { supabase, user } = await requireUser();
+  const activityId = String(formData.get("activity_id"));
+  const { data: existing } = await supabase
+    .from("workout_sessions")
+    .select("id")
+    .eq("strava_activity_id", activityId)
+    .maybeSingle();
+  if (existing) redirect(`/treino/${existing.id}`);
+
+  const { data: act } = await supabase
+    .from("cardio_sessions")
+    .select("id, name, activity_date, started_at, rpe")
+    .eq("id", activityId)
+    .single();
+  if (!act) return;
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .insert({
+      user_id: user.id,
+      session_date: act.activity_date,
+      name: act.name || "Treino",
+      started_at: act.started_at,
+      strava_activity_id: act.id,
+      rpe: act.rpe,
+    })
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message ?? "Erro ao criar treino");
+  revalidatePath("/treino");
+  redirect(`/treino/${data.id}`);
 }
 
 // ---------- séries ----------
