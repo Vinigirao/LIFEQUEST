@@ -1,284 +1,192 @@
 import Link from "next/link";
-import { Info } from "lucide-react";
-import { IntakeChart, Scatter } from "@/components/charts";
-import { LineChart } from "@/components/line-chart";
-import { Empty, PageTitle, SectionTitle, fmt } from "@/components/ui";
-import {
-  buildFactors,
-  consistencyGrid,
-  correlate,
-  dietByDay,
-  energyBalance,
-  explain,
-  moodByTraining,
-  runPerformance,
-  strengthPerformance,
-  strengthWord,
-  type Activity,
-  type Correlation,
-  type Journal,
-  type Meal,
-  type Profile,
-  type Weight,
-  type Workout,
-} from "@/lib/analytics";
-import { isStrength } from "@/lib/activity-types";
+import { PageTitle } from "@/components/ui";
+import type { Profile } from "@/lib/analytics";
 import { addDays, todayISO } from "@/lib/dates";
+import { loadFinance } from "@/lib/finance/load";
+import { buildDaily, type RawActivity, type RawMeal, type RawWeight, type RawWorkout } from "@/lib/insights/daily";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { requireUser } from "@/lib/supabase/server";
+import { Corpo } from "./corpo";
+import type { Ctx } from "./ctx";
+import { Relacoes } from "./relacoes";
+import { Resumo } from "./resumo";
+import { Rotina } from "./rotina";
+import { Treino } from "./treino";
+
+const VIEWS = [
+  { key: "resumo", label: "Resumo" },
+  { key: "relacoes", label: "Relações" },
+  { key: "corpo", label: "Corpo" },
+  { key: "treino", label: "Treino" },
+  { key: "rotina", label: "Rotina" },
+] as const;
+type View = (typeof VIEWS)[number]["key"];
+const PERIODS = [30, 90, 180] as const;
 
 const num = (v: unknown) => (v == null ? null : Number(v));
+const str = (v: string | string[] | undefined) => (typeof v === "string" ? v : "");
 
-export default async function AnalisesPage() {
+export default async function AnalisesPage({ searchParams }: PageProps<"/analises">) {
   const { supabase, user } = await requireUser();
+  const sp = await searchParams;
   const today = todayISO();
-  const from = addDays(today, -180);
+  const view: View = VIEWS.some((v) => v.key === sp.v) ? (sp.v as View) : "resumo";
+  const period = PERIODS.find((p) => String(p) === sp.p) ?? 90;
+  const lag: 0 | 1 = sp.lag === "0" ? 0 : 1;
+  const from = addDays(today, -Math.max(period, 60) - 40); // folga para tendências e "dia anterior"
 
-  const [meals, weights, journal, acts, workouts, profile] = await Promise.all([
-    supabase
-      .from("meal_logs")
-      .select("log_date, kcal, protein_g, carbs_g, fat_g, is_free_meal, eaten_at")
-      .gte("log_date", from),
-    supabase.from("body_logs").select("log_date, weight_kg").not("weight_kg", "is", null).gte("log_date", from),
+  const href = (params: Record<string, string | undefined>) => {
+    const q = new URLSearchParams();
+    const all: Record<string, string | undefined> = { v: view, p: String(period), ...params };
+    for (const [k, v] of Object.entries(all)) {
+      if (!v) continue;
+      if (k === "v" && v === "resumo") continue;
+      if (k === "p" && v === "90") continue;
+      q.set(k, v);
+    }
+    const s = q.toString();
+    return s ? `/analises?${s}` : "/analises";
+  };
+
+  const [meals, weights, journal, acts, workouts, profile, fin] = await Promise.all([
+    fetchAll((a, b) =>
+      supabase
+        .from("meal_logs")
+        .select("log_date, kcal, protein_g, carbs_g, fat_g, is_free_meal, eaten_at")
+        .gte("log_date", from)
+        .order("log_date")
+        .order("id")
+        .range(a, b),
+    ),
+    supabase.from("body_logs").select("log_date, weight_kg, waist_cm").gte("log_date", from),
     supabase.from("journal_entries").select("entry_date, mood, energy").gte("entry_date", from),
-    supabase
-      .from("cardio_sessions")
-      .select("id, activity_date, activity_type, started_at, duration_min, distance_km, avg_hr, calories, rpe")
-      .gte("activity_date", from),
-    supabase
-      .from("workout_sessions")
-      .select("id, session_date, name, template_id, rpe, started_at, created_at, strava_activity_id, workout_sets(weight_kg, reps)")
-      .gte("session_date", from),
+    fetchAll((a, b) =>
+      supabase
+        .from("cardio_sessions")
+        .select("id, activity_date, activity_type, started_at, duration_min, distance_km, avg_hr, calories, rpe")
+        .gte("activity_date", from)
+        .order("activity_date")
+        .order("id")
+        .range(a, b),
+    ),
+    fetchAll((a, b) =>
+      supabase
+        .from("workout_sessions")
+        .select(
+          "id, session_date, name, template_id, rpe, started_at, created_at, strava_activity_id, workout_sets(weight_kg, reps, exercise_id, exercises(name))",
+        )
+        .gte("session_date", addDays(today, -365))
+        .order("session_date")
+        .order("id")
+        .range(a, b),
+    ),
     supabase.from("profiles").select("height_cm, birth_year, sex, weight_goal").eq("id", user.id).maybeSingle(),
+    loadFinance(supabase, from),
   ]);
 
-  const mealRows: Meal[] = (meals.data ?? []).map((m) => ({
+  const mealRows: RawMeal[] = meals.map((m) => ({
     log_date: m.log_date,
     kcal: Number(m.kcal),
     protein_g: Number(m.protein_g),
     carbs_g: Number(m.carbs_g),
     fat_g: Number(m.fat_g),
-    is_free_meal: m.is_free_meal,
+    is_free_meal: !!m.is_free_meal,
     eaten_at: m.eaten_at,
   }));
-  const weightRows: Weight[] = (weights.data ?? []).map((w) => ({ log_date: w.log_date, weight_kg: Number(w.weight_kg) }));
-  const journalRows: Journal[] = journal.data ?? [];
-  const actRows: Activity[] = (acts.data ?? []).map((a) => ({
+  const weightRows: RawWeight[] = (weights.data ?? []).map((w) => ({
+    log_date: w.log_date,
+    weight_kg: num(w.weight_kg),
+    waist_cm: num(w.waist_cm),
+  }));
+  const actRows: RawActivity[] = acts.map((a) => ({
     ...a,
     duration_min: Number(a.duration_min),
     distance_km: num(a.distance_km),
     avg_hr: num(a.avg_hr),
     calories: num(a.calories),
   }));
-  const workoutRows: Workout[] = (workouts.data ?? []).map((w) => ({
-    ...w,
-    volume: (w.workout_sets as { weight_kg: number; reps: number }[]).reduce((s, x) => s + Number(x.weight_kg) * x.reps, 0),
+  type SetRow = { weight_kg: number; reps: number; exercise_id: string | null; exercises: { name: string } | { name: string }[] | null };
+  const workoutRows: RawWorkout[] = workouts.map((w) => ({
+    id: w.id,
+    session_date: w.session_date,
+    name: w.name,
+    template_id: w.template_id,
+    rpe: w.rpe,
+    started_at: w.started_at,
+    created_at: w.created_at,
+    strava_activity_id: w.strava_activity_id,
+    sets: ((w.workout_sets ?? []) as unknown as SetRow[]).map((s) => ({
+      weight_kg: Number(s.weight_kg),
+      reps: Number(s.reps),
+      exercise_id: s.exercise_id,
+      exercise: Array.isArray(s.exercises) ? (s.exercises[0]?.name ?? null) : (s.exercises?.name ?? null),
+    })),
   }));
-  const prof = (profile.data ?? null) as Profile | null;
 
-  // ---------------- energia
-  const eb = energyBalance(mealRows, weightRows, actRows, prof, today);
-  const diet = dietByDay(mealRows);
-  const last28 = Array.from({ length: 28 }, (_, i) => addDays(today, i - 28));
-  const intakeDays = last28.map((d) => ({ date: d, kcal: diet.get(d)?.kcal ?? null }));
-  const diff = eb.avgIntake != null && eb.targetKcal != null ? eb.avgIntake - eb.targetKcal : null;
-  const goalLabel = { perder: "perder peso", manter: "manter o peso", ganhar: "ganhar massa" }[prof?.weight_goal ?? "manter"];
-
-  // ---------------- desempenho
-  const trainingDates = [
-    ...workoutRows.map((w) => w.session_date),
-    ...actRows.filter((a) => isStrength(a.activity_type)).map((a) => a.activity_date),
-  ];
-  const factors = buildFactors(mealRows, journalRows, [...trainingDates, ...actRows.map((a) => a.activity_date)]);
-  const strength = strengthPerformance(workoutRows);
-  const runs = runPerformance(actRows);
-  const correlations: Correlation[] = [
-    ...correlate(strength, factors, "forca"),
-    ...correlate(runs, factors, "corrida"),
-  ]
-    .filter((c) => Math.abs(c.r) >= 0.2)
-    .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
-    .slice(0, 6);
-
-  // ---------------- humor
-  const mood = moodByTraining(journalRows, [...trainingDates, ...actRows.map((a) => a.activity_date)]);
-
-  // ---------------- consistência
-  const activeDates = new Set([...trainingDates, ...actRows.map((a) => a.activity_date)]);
-  const grid = consistencyGrid(today, activeDates);
-  const weightSeries = weightRows
-    .filter((w) => w.log_date >= addDays(today, -90))
-    .sort((a, b) => a.log_date.localeCompare(b.log_date))
-    .map((w) => ({ date: w.log_date, value: w.weight_kg }));
+  const yesterday = addDays(today, -1);
+  const data = buildDaily({
+    from,
+    to: yesterday,
+    meals: mealRows,
+    journal: journal.data ?? [],
+    activities: actRows,
+    workouts: workoutRows,
+    weights: weightRows,
+    txs: fin.txs,
+    categories: fin.categories,
+  });
+  const periodFrom = addDays(today, -period);
+  const ctx: Ctx = {
+    today,
+    period,
+    periodFrom,
+    data,
+    rows: data.rows.filter((r) => r.date >= periodFrom),
+    meals: mealRows,
+    acts: actRows,
+    workouts: workoutRows,
+    weights: weightRows,
+    profile: (profile.data ?? null) as Profile | null,
+    href,
+    sp: { lag, x: str(sp.x), y: str(sp.y), o: str(sp.o) },
+  };
 
   return (
     <>
-      <PageTitle title="Análises" subtitle="O que seus dados dizem" />
+      <PageTitle title="Análises" subtitle="O que seus dados dizem sobre você" />
 
-      {/* ------------------------------------------------ Energia */}
-      <SectionTitle>Balanço de energia · 28 dias</SectionTitle>
-      <div className="card space-y-3">
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <p className="text-xl font-bold">{fmt(eb.avgIntake)}</p>
-            <p className="text-[11px] text-muted">kcal/dia comidas</p>
-          </div>
-          <div>
-            <p className="text-xl font-bold">{fmt(eb.tdee)}</p>
-            <p className="text-[11px] text-muted">
-              gasto/dia {eb.tdeeSource === "dados" ? "(seus dados)" : eb.tdeeSource === "formula" ? "(fórmula)" : ""}
-            </p>
-          </div>
-          <div>
-            <p className="text-xl font-bold">
-              {eb.weightPerWeek == null ? "–" : `${eb.weightPerWeek > 0 ? "+" : ""}${fmt(eb.weightPerWeek, 2)}`}
-            </p>
-            <p className="text-[11px] text-muted">kg/semana</p>
-          </div>
-        </div>
-
-        <IntakeChart days={intakeDays} target={eb.tdee} />
-
-        {eb.targetKcal != null && eb.avgIntake != null && diff != null ? (
-          <div
-            className={`rounded-xl p-3 text-sm ${
-              Math.abs(diff) <= 150 ? "bg-ok/10 text-ok" : Math.abs(diff) <= 400 ? "bg-warn/10 text-warn" : "bg-bad/10 text-bad"
-            }`}
+      <nav className="mb-2 grid grid-cols-5 gap-1 rounded-xl border border-line bg-card p-1 text-center text-[12px] font-medium">
+        {VIEWS.map((v) => (
+          <Link
+            key={v.key}
+            href={href({ v: v.key })}
+            className={`rounded-lg py-2 ${view === v.key ? "bg-accent-strong text-white" : "text-muted"}`}
           >
-            Para {goalLabel}, o ideal é comer cerca de <b>{fmt(eb.targetKcal)} kcal/dia</b>. Você está comendo{" "}
-            <b>
-              {fmt(Math.abs(diff))} kcal {diff > 0 ? "a mais" : "a menos"}
-            </b>
-            {Math.abs(diff) <= 150 ? ": está no ponto." : "."}
-          </div>
-        ) : null}
-
-        {eb.proteinTarget && eb.avgProtein != null ? (
-          <p className="text-sm text-muted">
-            Proteína: você come em média <b className="text-fg">{fmt(eb.avgProtein)} g</b>; para o seu peso o recomendado
-            para quem treina é <b className="text-fg">{fmt(eb.proteinTarget[0])}–{fmt(eb.proteinTarget[1])} g</b>.
-          </p>
-        ) : null}
-
-        <p className="text-xs text-muted">
-          {eb.adaptiveTdee != null && eb.formulaTdee != null
-            ? `Pelos seus dados o gasto é ${fmt(eb.adaptiveTdee)} kcal; pela fórmula (metabolismo + ${fmt(eb.avgActiveKcal)} kcal/dia de atividades do Strava), ${fmt(eb.formulaTdee)} kcal. `
-            : ""}
-          Refeições livres ficam fora da média.
-        </p>
-        {eb.missing.length > 0 && (
-          <div className="flex gap-2 rounded-xl bg-card-2 p-3 text-xs text-muted">
-            <Info size={16} className="shrink-0 text-accent" />
-            <span>
-              Para uma estimativa melhor falta: {eb.missing.join("; ")}.{" "}
-              {!eb.bmr && (
-                <Link href="/config" className="text-accent">
-                  Preencher perfil
-                </Link>
-              )}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {weightSeries.length >= 2 && (
-        <>
-          <SectionTitle>Peso · 90 dias</SectionTitle>
-          <div className="card">
-            <LineChart points={weightSeries} unit="kg" />
-          </div>
-        </>
-      )}
-
-      {/* ------------------------------------------------ Desempenho */}
-      <SectionTitle>O que anda junto com seu desempenho</SectionTitle>
-      {correlations.length === 0 ? (
-        <Empty>
-          Ainda não há dados suficientes. Com uns 6 treinos do mesmo modelo (ou 6 corridas) e a dieta e o diário do dia
-          anterior registrados, as relações aparecem aqui.
-        </Empty>
-      ) : (
-        <div className="space-y-2">
-          {correlations.map((c, i) => (
-            <details key={`${c.metric}-${c.factor.key}`} className="card" open={i === 0}>
-              <summary className="cursor-pointer list-none">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold">
-                    {c.metric === "forca" ? "💪" : "🏃"} {c.factor.label}
-                  </p>
-                  <span
-                    className={`rounded-md px-2 py-0.5 text-xs font-semibold ${c.r > 0 ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}`}
-                  >
-                    {c.r > 0 ? "▲" : "▼"} {strengthWord(c.r)}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-muted">{explain(c)}</p>
-                <p className="mt-1 text-[11px] text-muted">
-                  r = {c.r.toFixed(2).replace(".", ",")} · {c.n} {c.metric === "forca" ? "treinos" : "corridas"}
-                </p>
-              </summary>
-              <div className="mt-3">
-                <Scatter
-                  points={c.points}
-                  xLabel={`${c.factor.label} (${c.factor.unit})`}
-                  yLabel={c.metric === "forca" ? "volume vs. sua média (%)" : "ritmo vs. sua média (%)"}
-                />
-                <p className="text-[11px] text-muted">
-                  Eixo vertical: desempenho comparado com a sua média (100 = na média).
-                </p>
-              </div>
-            </details>
+            {v.label}
+          </Link>
+        ))}
+      </nav>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted">Período analisado</span>
+        <div className="flex gap-1">
+          {PERIODS.map((p) => (
+            <Link
+              key={p}
+              href={href({ p: String(p), x: undefined, y: undefined })}
+              className="chip min-h-8 px-2.5 text-xs"
+              data-active={period === p}
+            >
+              {p} dias
+            </Link>
           ))}
-          <p className="text-xs text-muted">
-            Correlação não prova causa: use como pista para testar. Quanto mais dias registrados, mais confiável.
-          </p>
         </div>
-      )}
-
-      {/* ------------------------------------------------ Humor */}
-      <SectionTitle>Humor e treino</SectionTitle>
-      <div className="card">
-        {mood.trainedAvg != null && mood.restAvg != null ? (
-          <div className="grid grid-cols-2 gap-2 text-center">
-            <div>
-              <p className="text-2xl font-bold">{fmt(mood.trainedAvg, 1)}</p>
-              <p className="text-[11px] text-muted">humor em dias com treino ({mood.trainedN})</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{fmt(mood.restAvg, 1)}</p>
-              <p className="text-[11px] text-muted">humor em dias sem treino ({mood.restN})</p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted">Registre o humor no Diário para comparar dias com e sem treino.</p>
-        )}
       </div>
 
-      {/* ------------------------------------------------ Consistência */}
-      <SectionTitle>Consistência · 12 semanas</SectionTitle>
-      <div className="card">
-        <div className="grid grid-cols-[auto_1fr] gap-2">
-          <div className="grid grid-rows-7 gap-1 text-[9px] leading-[14px] text-muted">
-            {["S", "T", "Q", "Q", "S", "S", "D"].map((d, i) => (
-              <span key={i}>{d}</span>
-            ))}
-          </div>
-          <div className="grid grid-flow-col grid-rows-7 gap-1">
-            {grid.flat().map((c) => (
-              <span
-                key={c.date}
-                title={c.date}
-                className="h-[14px] rounded-[3px]"
-                style={{
-                  background: c.future ? "transparent" : c.active ? "var(--color-accent)" : "var(--color-card-2)",
-                }}
-              />
-            ))}
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          {[...activeDates].filter((d) => d >= addDays(today, -28)).length} dias ativos nas últimas 4 semanas.
-        </p>
-      </div>
+      {view === "resumo" && <Resumo ctx={ctx} />}
+      {view === "relacoes" && <Relacoes ctx={ctx} />}
+      {view === "corpo" && <Corpo ctx={ctx} />}
+      {view === "treino" && <Treino ctx={ctx} />}
+      {view === "rotina" && <Rotina ctx={ctx} />}
     </>
   );
 }

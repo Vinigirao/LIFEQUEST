@@ -6,7 +6,7 @@ App pessoal para centralizar a rotina: diário, lembretes com push, treino, card
 
 ## Abas
 
-Barra inferior: **Início · Treino · Dieta · Análises · Mais**
+Barra inferior: **Início · Treino · Dieta · Finanças · Análises · Mais**
 
 | Tela | O que faz |
 | --- | --- |
@@ -14,7 +14,7 @@ Barra inferior: **Início · Treino · Dieta · Análises · Mais**
 | **Treino → Força** | Séries (carga × repetições), modelos, recordes, reação de esforço (RPE) e vínculo com o treino de força do Strava (FC e calorias) |
 | **Treino → Cardio** | Atividades do Strava com FC média/máxima, calorias e esforço; registro manual |
 | **Dieta** | Kcal e macros do dia, atalhos de 1 toque com horário da refeição, refeição livre e registro manual |
-| **Análises** | Balanço de energia (quanto comer para o seu objetivo), peso, o que anda junto com o seu desempenho (dieta, humor e descanso do dia anterior, horas desde a última refeição), humor × treino e consistência |
+| **Análises** | 5 abas. **Resumo**: últimos 7 dias × 4 semanas antes, principais descobertas, seus melhores × piores dias. **Relações**: mapa de correlação entre dieta, treino, humor, peso e gastos (mesmo dia e dia seguinte), com gráfico e nível de confiança. **Corpo**: balanço de energia, peso suavizado, macros, horário das refeições. **Treino**: carga semanal, consistência, evolução e 1RM estimado, descanso × desempenho, melhor horário, ritmo e eficiência da corrida, RPE. **Rotina**: humor e energia, semana típica, treino × humor |
 | **Mais → Diário** | Texto do dia com humor e energia |
 | **Finanças** | Open Finance (Pluggy): contas e cartões, gasto por forma de pagamento (cartão, Pix, débito, boleto), parcelas futuras, assinaturas, metas de gasto com alerta, categorias automáticas |
 | **Mais → Fotos** | Foto diária, peso, cintura e comparação antes/depois |
